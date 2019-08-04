@@ -1,49 +1,89 @@
-var app = require('express')();
-var server = require('http').Server(app);
-var io = require('socket.io')(server);
+const http = require('http');
+const io = require('socket.io')();
+const socketAuth = require('socketio-auth');
+const adapter = require('socket.io-redis');
 
-server.listen(8080);
-// WARNING: app.listen(80) will NOT work here!
+const redis = require('./redis');
 
-app.get('/', function (req, res) {
-    res.status(200).send('Welcome to the Socket Server!');
+const PORT = process.env.PORT || 4000;
+const server = http.createServer();
+
+const redisAdapter = adapter({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379,
+    password: process.env.REDIS_PASS || 'password',
 });
 
-app.get('/client', function (req, res) {
-    res.sendFile(__dirname + '/client.html');
-});
+io.attach(server);
+io.adapter(redisAdapter);
 
-io.on('connection', function (socket) {
-    // console.log(socket.id);
-    io.sockets.emit('news', {
-        data: 'connected :' + socket.id
-    });
-    io.sockets.emit('other', {
-        data: 'connected :' + socket.id
-    });
-    socket.on('my other event', function (data) {
-        console.log(data);
-    });
+// dummy user verification
+async function verifyUser(token) {
+    return new Promise((resolve, reject) => {
+        // setTimeout to mock a cache or database call
+        setTimeout(() => {
+            // this information should come from your cache or database
+            const users = [{
+                id: 1,
+                name: 'mariotacke',
+                token: 'token',
+            }, ];
 
-    socket.on('news', function (data) {
-        console.log(data);
-        io.sockets.emit('news', {
-            data: data.val
+            const user = users.find((user) => user.token === token);
+            if (!user) {
+                return reject('USER_NOT_FOUND');
+            }
+
+            return resolve(user);
+        }, 200);
+    });
+}
+
+socketAuth(io, {
+    authenticate: async (socket, data, callback) => {
+        const {
+            token
+        } = data;
+
+        try {
+            const user = await verifyUser(token);
+            const canConnect = await redis
+                .setAsync(`users:${user.id}`, socket.id);
+
+            console.log(canConnect);
+            if (!canConnect) {
+                return callback({
+                    message: 'ALREADY_LOGGED_IN'
+                });
+            }
+
+            socket.user = user;
+
+            return callback(null, true);
+        } catch (e) {
+            console.log(e);
+            console.log(`Socket ${socket.id} unauthorized.`);
+            return callback({
+                message: 'UNAUTHORIZED'
+            });
+        }
+    },
+    postAuthenticate: async (socket) => {
+        console.log(`Socket ${socket.id} authenticated.`);
+
+        socket.conn.on('packet', async (packet) => {
+            if (socket.auth && packet.type === 'ping') {
+                await redis.setAsync(`users:${socket.user.id}`, socket.id, 'XX', 'EX', 30);
+            }
         });
-    });
+    },
+    disconnect: async (socket) => {
+        console.log(`Socket ${socket.id} disconnected.`);
 
-    socket.on('other', function (data) {
-        console.log(data);
-        io.sockets.emit('other', {
-            data: data.val
-        });
-    });
+        if (socket.user) {
+            await redis.delAsync(`users:${socket.user.id}`);
+        }
+    },
+})
 
-    socket.on('disconnect', function () {
-        console.log('disconnected : ' + socket.id);
-        socket.disconnect();
-        io.sockets.emit('disconnect', {
-            data: socket.id
-        });
-    });
-});
+server.listen(PORT);
