@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src='/socket.io/socket.io.js'></script>
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+</head>
+
+<body>
+    <h1>socket client</h1>
+    <input type="text" id="news">
+    <button onclick="sendMsg('news')">send news</button>
+
+    <input type="text" id="other">
+    <button onclick="sendMsg('other')">send other</button>
+    <div style="border: 1px solid red; margin: 10px; padding:10px;" id="news-div">
+        <h3>News Room</h3>
+    </div>
+
+    <div style="border: 1px solid blue; margin: 10px; padding:10px;" id="other-div">
+        <h3>Other Room</h3>
+    </div>
+
+    <div style="border: 1px solid black; margin: 10px; padding:10px;" id="log-div">
+        <h3>User Log Room</h3>
+    </div>
+
+    <script>
+        var socket = io.connect('http://localhost:8080');
+        socket.on('news', function (data) {
+            console.log(data);
+            const div = document.getElementById('news-div');
+            let childEl = document.createElement("p");
+            childEl.innerHTML = data.data;
+
+            div.appendChild(childEl);
+            //    socket.emit('my other event', { my: 'data' });
+        });
+
+        socket.on('other', function (data) {
+            console.log(data);
+            const div = document.getElementById('other-div');
+            let childEl = document.createElement("p");
+            childEl.innerHTML = data.data;
+
+            div.appendChild(childEl);
+            //    socket.emit('my other event', { my: 'data' });
+        });
+
+        socket.on('disconnect', function (data) {
+            console.log(data);
+            const div = document.getElementById('log-div');
+            let childEl = document.createElement("p");
+            childEl.innerHTML = "Client Disconnected : "+data.data;
+
+            div.appendChild(childEl);
+            //    socket.emit('my other event', { my: 'data' });
+        });
+
+        function sendMsg(room) {
+            let val = document.getElementById(room).value;
+            console.log(val)
+            socket.emit(room, {
+                val
+            });
+        }
+    </script>
+</body>
+
+</html>
